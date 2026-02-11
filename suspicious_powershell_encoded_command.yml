@@ -27,8 +27,13 @@ detection:
     CommandLine|contains:
       - '-EncodedCommand'
       - '-enc '
+  
+  filter_known_admin:
+    User|contains:
+      - 'svc_'
+      - 'admin'
 
-  condition: selection_process and selection_encoded
+  condition: selection_process and selection_encoded and not filter_known_admin
 
 fields:
   - Image
