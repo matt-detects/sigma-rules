@@ -1,4 +1,4 @@
-,title: Suspicious PowerShell Execution with Encoded Command
+title: Suspicious PowerShell Execution with Encoded Command
 id: 9c1e5c0a-4e8b-4f4f-9b9a-encoded-ps-demo
 status: experimental
 description: |
