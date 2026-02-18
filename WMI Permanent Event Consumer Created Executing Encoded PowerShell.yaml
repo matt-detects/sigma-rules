@@ -1,0 +1,53 @@
+title: WMI Permanent Event Consumer Created Executing Encoded PowerShell
+id: testing.2
+status: experimental
+description: |
+  Detects creation of a WMI permanent event consumer (Sysmon Event ID 20) that launches PowerShell with an encoded command.
+  This is a strong indicator of WMI-based persistence (EventConsumer/Filter binding) frequently used by malware and red teams.
+author: Matt S
+date: 2026-02-18
+references:
+  - https://learn.microsoft.com/sysinternals/downloads/sysmon
+tags:
+  - attack.persistence
+  - attack.t1546.003
+  - attack.execution
+logsource:
+  product: windows
+  service: sysmon
+  category: wmi_event
+detection:
+  selection:
+    EventID: 20
+    # Sysmon WmiEventConsumer fields are typically under EventData
+    CommandLine|contains:
+      - "powershell"
+    CommandLine|contains|all:
+      - "-enc"
+  selection_optional_flags:
+    CommandLine|contains:
+      - "-nop"
+      - "-noprofile"
+      - "-w hidden"
+      - "-windowstyle hidden"
+      - "FromBase64String"
+  filter_benign_examples:
+    # Adjust to your environment if you legitimately deploy WMI consumers (rare)
+    Consumer|contains:
+      - "Intel"
+      - "Lenovo"
+      - "Dell"
+    CommandLine|contains:
+      - "C:\\Program Files\\"
+  condition: selection and (selection_optional_flags or not filter_benign_examples)
+falsepositives:
+  - Very rare; some enterprise management suites may register WMI consumers. Tune with known-good consumer names and command lines.
+level: high
+fields:
+  - UtcTime
+  - User
+  - Consumer
+  - Filter
+  - CommandLine
+  - CreatorProcessName
+  - CreatorProcessID
