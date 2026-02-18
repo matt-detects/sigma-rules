@@ -1,0 +1,60 @@
+title: WMI Permanent Event Subscription Binding Created To CommandLine Consumer
+id: testing.3
+status: experimental
+description: |
+  Detects creation of a WMI permanent event subscription binding (Sysmon Event ID 21), which activates persistence by
+  binding an __EventFilter to an EventConsumer. This rule focuses on bindings that reference CommandLine consumers,
+  commonly abused for stealthy persistence.
+author: Matt S
+date: 2026-02-18
+references:
+  - https://learn.microsoft.com/sysinternals/downloads/sysmon
+tags:
+  - attack.persistence
+  - attack.t1546.003
+logsource:
+  product: windows
+  service: sysmon
+  category: wmi_event
+detection:
+  selection:
+    EventID: 21
+    Operation|contains:
+      - "Created"
+  selection_binding:
+    # Sysmon EID 21 typically includes fields like 'Consumer' and 'Filter'
+    Consumer|contains:
+      - "CommandLineEventConsumer"
+    Filter|contains:
+      - "__EventFilter"
+  selection_high_signal_names:
+    # Optional "interesting" keywords that often show up in adversary naming
+    Consumer|contains:
+      - "Update"
+      - "Windows"
+      - "Security"
+      - "Defender"
+      - "Telemetry"
+      - "Adobe"
+      - "Chrome"
+      - "OneDrive"
+  filter_known_good:
+    # Tune with your environment's known legitimate bindings
+    Consumer|contains:
+      - "Lenovo"
+      - "Dell"
+      - "Intel"
+    Filter|contains:
+      - "Vendor"
+  condition: selection and selection_binding and (selection_high_signal_names or not filter_known_good)
+falsepositives:
+  - Some enterprise management / OEM tooling can create WMI permanent subscriptions.
+  - Legitimate IT scripts that implement WMI-based monitoring/persistence patterns (rare).
+level: high
+fields:
+  - UtcTime
+  - User
+  - Consumer
+  - Filter
+  - CreatorProcessName
+  - CreatorProcessID
