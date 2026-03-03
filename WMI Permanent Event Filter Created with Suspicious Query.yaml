@@ -1,16 +1,22 @@
-title: WMI Permanent Event Filter Created with Suspicious Query
+title: WMI Permanent Event Filter Created with Suspicious Query or Name
 id: 9d2f4a17-5c8e-4b31-a7f0-2e6d8b3c5091
 status: experimental
 description: |
-  Detects creation of a WMI permanent event filter (Sysmon Event ID 19).
-  Filters define the trigger condition for WMI persistence subscriptions.
-  Creation of a filter is the first step in establishing WMI-based persistence
-  and should be correlated with EID 20 (consumer) and EID 21 (binding).
+  NEW RULE — completes the WMI persistence triad (EID 19 + 20 + 21).
+  Detects WMI event filter creation (Sysmon EID 19), the first stage of WMI persistence.
+  Fires on suspicious trigger query patterns (timer, logon, process start) and on
+  adversary naming conventions mirroring the EID 21 rule keyword list.
+  Correlating all three EIDs on the same host within a short window is a
+  near-zero false positive composite signal.
 author: Matt S
 date: 2026/03/03
 references:
+  - https://learn.microsoft.com/sysinternals/downloads/sysmon
   - https://attack.mitre.org/techniques/T1546/003/
+  - https://www.ired.team/offensive-security/persistence/t1084-using-wmi-for-persistence
 related:
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: related
   - id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b
     type: related
   - id: 3b8e1f72-cd04-4a9e-b507-f92d3a5e8061
@@ -26,25 +32,29 @@ detection:
     EventID: 19
 
   selection_suspicious_queries:
-    # Common WMI trigger conditions used for persistence
     Query|contains:
-      - 'SELECT * FROM __InstanceModificationEvent'  # timer-based
-      - 'Win32_LocalTime'                            # time trigger
-      - 'TargetInstance.Day'                         # date trigger
-      - '__InstanceCreationEvent'                    # on object creation
-      - 'Win32_ProcessStartTrace'                    # on process start
-      - 'LogonSession'                               # on logon
+      - 'SELECT * FROM __InstanceModificationEvent'
+      - 'Win32_LocalTime'
+      - 'TargetInstance.Day'
+      - '__InstanceCreationEvent'
+      - 'Win32_ProcessStartTrace'
+      - 'LogonSession'
+      - '__TimerEvent'
 
   selection_suspicious_names:
-    # Mirror EID 21 name-based detection
+    # Mirrors EID 21 keyword list for consistent chain coverage
     Name|contains:
       - 'Update'
       - 'Security'
       - 'Defender'
       - 'Telemetry'
+      - 'Adobe'
       - 'Chrome'
       - 'OneDrive'
       - 'Svchost'
+      - 'System'
+      - 'Windows'
+      - 'Check'
 
   filter_main_known_good:
     Name|contains:
@@ -58,6 +68,10 @@ detection:
     and (selection_suspicious_queries or selection_suspicious_names)
     and not filter_main_known_good
 
+falsepositives:
+  - OEM management tools registering WMI filters. Tune filter_main_known_good from baseline.
+  - Enterprise monitoring solutions using WMI event subscriptions.
+  - Security products subscribing to WMI events for detection.
 level: high
 fields:
   - UtcTime
