@@ -1,53 +1,76 @@
-title: WMI Permanent Event Consumer Created Executing Encoded PowerShell
-id: testing.2
+title: WMI Permanent Event Consumer Created with Encoded PowerShell Command
+id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b
 status: experimental
 description: |
-  Detects creation of a WMI permanent event consumer (Sysmon Event ID 20) that launches PowerShell with an encoded command.
-  This is a strong indicator of WMI-based persistence (EventConsumer/Filter binding) frequently used by malware and red teams.
+  Detects the creation of a WMI permanent CommandLineEventConsumer (Sysmon Event ID 20)
+  where the destination command invokes PowerShell with an encoded command argument.
+  This is a strong indicator of WMI-based persistence frequently used by malware and
+  threat actors to survive reboots without dropping files to disk.
 author: Matt S
-date: 2026-02-18
+date: 2026/02/18
+modified: 2026/03/03
 references:
   - https://learn.microsoft.com/sysinternals/downloads/sysmon
+  - https://attack.mitre.org/techniques/T1546/003/
+  - https://www.ired.team/offensive-security/persistence/t1084-using-wmi-for-persistence
 tags:
   - attack.persistence
   - attack.t1546.003
   - attack.execution
+  - attack.t1059.001
 logsource:
   product: windows
-  service: sysmon
   category: wmi_event
 detection:
-  selection:
+  selection_consumer_type:
     EventID: 20
-    # Sysmon WmiEventConsumer fields are typically under EventData
-    CommandLine|contains:
-      - "powershell"
-    CommandLine|contains|all:
-      - "-enc"
-  selection_optional_flags:
-    CommandLine|contains:
-      - "-nop"
-      - "-noprofile"
-      - "-w hidden"
-      - "-windowstyle hidden"
-      - "FromBase64String"
-  filter_benign_examples:
-    # Adjust to your environment if you legitimately deploy WMI consumers (rare)
-    Consumer|contains:
-      - "Intel"
-      - "Lenovo"
-      - "Dell"
-    CommandLine|contains:
-      - "C:\\Program Files\\"
-  condition: selection and (selection_optional_flags or not filter_benign_examples)
+    # Sysmon EID 20 = WmiEventConsumer. The 'Type' field distinguishes consumer types.
+    # CommandLineEventConsumer is the relevant type for executing commands.
+    Type: 'CommandLineEventConsumer'
+  selection_powershell:
+    # Sysmon EID 20 uses 'Destination' not 'CommandLine' for the executed command
+    Destination|contains|all:
+      - 'powershell'
+      - '-enc'
+  selection_powershell_flags:
+    # Additional suspicious PowerShell flags commonly paired with encoded commands
+    Destination|contains:
+      - '-nop'
+      - '-noprofile'
+      - '-w hidden'
+      - '-windowstyle hidden'
+      - 'FromBase64String'
+      - '-EncodedCommand'
+  filter_main_known_good_consumers:
+    # Suppress known-legitimate WMI consumers by consumer name.
+    # Extend this list based on your environment (OEM management tools are the main FP source).
+    # NOTE: Both conditions must match to suppress — name AND safe path.
+    Name|contains:
+      - 'Intel'
+      - 'Lenovo'
+      - 'Dell'
+  filter_main_known_good_paths:
+    Destination|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Program Files\Intel\'
+      - 'C:\Program Files\Lenovo\'
+      - 'C:\Program Files (x86)\Dell\'
+  condition: >
+    selection_consumer_type
+    and selection_powershell
+    and not (filter_main_known_good_consumers and filter_main_known_good_paths)
+    and (selection_powershell_flags or selection_powershell)
 falsepositives:
-  - Very rare; some enterprise management suites may register WMI consumers. Tune with known-good consumer names and command lines.
+  - Enterprise OEM management tooling (Intel ME, Dell Command, Lenovo Vantage) may register
+    WMI consumers in rare configurations. Validate with consumer Name and Destination path.
+  - Custom enterprise monitoring solutions. Baseline your environment before deploying at high severity.
 level: high
 fields:
   - UtcTime
   - User
-  - Consumer
+  - Name
+  - Type
+  - Destination
   - Filter
-  - CommandLine
   - CreatorProcessName
-  - CreatorProcessID
+  - CreatorProcessId
