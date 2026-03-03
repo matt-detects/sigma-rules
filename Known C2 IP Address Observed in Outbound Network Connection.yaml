@@ -1,0 +1,107 @@
+title: Known C2 IP Address Observed in Outbound Network Connection
+id: b3d28f51-7e4a-4c92-b107-9f2e6d4a8c17
+status: experimental
+description: |
+  Companion to f4a17e83 — detects outbound network connections to a known or
+  suspected C2 IP address. Covers cases where the IP does not appear in the
+  command line (e.g. resolved at runtime, passed via environment variable,
+  or loaded from a config file dropped to disk).
+
+  Covers both Windows (Sysmon EID 3) and Linux network telemetry.
+  Cross-platform — deploy against both windows and linux product targets.
+author: Matt S
+date: 2026/03/03
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+related:
+  - id: f4a17e83-2c9d-4b51-a830-7d6e5f1c2b08
+    type: related
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: related
+  - id: c7f2e841-9a3d-4b18-d506-1e8f3c2a7b94
+    type: related
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_c2_destination:
+    DestinationIp: '10.10.10.101'
+    Initiated: 'true'   # Outbound only
+
+  filter_main_known_good:
+    Image|endswith:
+      - '\nmap.exe'
+      - '\curl.exe'   # Only if curl to this IP is known-legitimate in your env
+
+  condition: selection_c2_destination and not filter_main_known_good
+
+falsepositives:
+  - Internal scanning or monitoring tools with this IP in scope
+  - Authorised red team infrastructure
+level: critical
+fields:
+  - Image
+  - CommandLine
+  - DestinationIp
+  - DestinationPort
+  - SourceIp
+  - SourcePorttitle: Known C2 IP Address Observed in Outbound Network Connection
+id: b3d28f51-7e4a-4c92-b107-9f2e6d4a8c17
+status: experimental
+description: |
+  Companion to f4a17e83 — detects outbound network connections to a known or
+  suspected C2 IP address. Covers cases where the IP does not appear in the
+  command line (e.g. resolved at runtime, passed via environment variable,
+  or loaded from a config file dropped to disk).
+
+  Covers both Windows (Sysmon EID 3) and Linux network telemetry.
+  Cross-platform — deploy against both windows and linux product targets.
+author: Matt S
+date: 2026/03/03
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+related:
+  - id: f4a17e83-2c9d-4b51-a830-7d6e5f1c2b08
+    type: related
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: related
+  - id: c7f2e841-9a3d-4b18-d506-1e8f3c2a7b94
+    type: related
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_c2_destination:
+    DestinationIp: '10.10.10.101'
+    Initiated: 'true'   # Outbound only
+
+  filter_main_known_good:
+    Image|endswith:
+      - '\nmap.exe'
+      - '\curl.exe'   # Only if curl to this IP is known-legitimate in your env
+
+  condition: selection_c2_destination and not filter_main_known_good
+
+falsepositives:
+  - Internal scanning or monitoring tools with this IP in scope
+  - Authorised red team infrastructure
+level: critical
+fields:
+  - Image
+  - CommandLine
+  - DestinationIp
+  - DestinationPort
+  - SourceIp
+  - SourcePort
+  - User
+  - HostName
+  - ProcessId
+  - User
+  - HostName
+  - ProcessId
