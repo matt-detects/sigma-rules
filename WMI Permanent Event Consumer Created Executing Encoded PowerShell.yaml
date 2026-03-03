@@ -2,10 +2,13 @@ title: WMI Permanent Event Consumer Created with Encoded PowerShell Command
 id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b
 status: experimental
 description: |
-  Detects the creation of a WMI permanent CommandLineEventConsumer (Sysmon Event ID 20)
-  where the destination command invokes PowerShell with an encoded command argument.
-  This is a strong indicator of WMI-based persistence frequently used by malware and
-  threat actors to survive reboots without dropping files to disk.
+  Detects WMI CommandLineEventConsumer creation (Sysmon EID 20) invoking PowerShell
+  with an encoded command. Matches both 'CommandLine' and 'Destination' fields to
+  handle Sysmon version inconsistencies — 'CommandLine' confirmed from observed logs.
+  Requires at least one evasion flag alongside -Enc; confirmed payload used
+  -NoP -W Hidden -Enc with an IEX/WebClient Base64 cradle.
+  Also detects unencoded IEX/WebClient cradles registered as consumers.
+  attack.t1027 added; defense_evasion tactic added based on confirmed payload.
 author: Matt S
 date: 2026/02/18
 modified: 2026/03/03
@@ -13,63 +16,111 @@ references:
   - https://learn.microsoft.com/sysinternals/downloads/sysmon
   - https://attack.mitre.org/techniques/T1546/003/
   - https://www.ired.team/offensive-security/persistence/t1084-using-wmi-for-persistence
+related:
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: related
+  - id: 3b8e1f72-cd04-4a9e-b507-f92d3a5e8061
+    type: related
+  - id: 9d2f4a17-5c8e-4b31-a7f0-2e6d8b3c5091
+    type: related
 tags:
   - attack.persistence
   - attack.t1546.003
   - attack.execution
   - attack.t1059.001
+  - attack.defense_evasion
+  - attack.t1027
 logsource:
   product: windows
   category: wmi_event
 detection:
   selection_consumer_type:
     EventID: 20
-    # Sysmon EID 20 = WmiEventConsumer. The 'Type' field distinguishes consumer types.
-    # CommandLineEventConsumer is the relevant type for executing commands.
     Type: 'CommandLineEventConsumer'
-  selection_powershell:
-    # Sysmon EID 20 uses 'Destination' not 'CommandLine' for the executed command
+
+  selection_powershell_cmdline:
+    CommandLine|contains|all:
+      - 'powershell'
+      - '-enc'
+
+  selection_powershell_destination:
     Destination|contains|all:
       - 'powershell'
       - '-enc'
-  selection_powershell_flags:
-    # Additional suspicious PowerShell flags commonly paired with encoded commands
-    Destination|contains:
-      - '-nop'
-      - '-noprofile'
-      - '-w hidden'
-      - '-windowstyle hidden'
-      - 'FromBase64String'
+
+  selection_evasion_flags_cmdline:
+    CommandLine|contains:
+      - '-NoP'
+      - '-NoPr'
+      - '-NonI'
+      - '-NonInteractive'
+      - '-W Hi'
+      - '-W hidden'
+      - '-WindowStyle Hi'
+      - '-WindowStyle hidden'
       - '-EncodedCommand'
+      - 'FromBase64String'
+
+  selection_evasion_flags_destination:
+    Destination|contains:
+      - '-NoP'
+      - '-NoPr'
+      - '-NonI'
+      - '-NonInteractive'
+      - '-W Hi'
+      - '-W hidden'
+      - '-WindowStyle Hi'
+      - '-WindowStyle hidden'
+      - '-EncodedCommand'
+      - 'FromBase64String'
+
+  selection_cradle_cmdline:
+    CommandLine|contains|all:
+      - 'Net.WebClient'
+      - 'DownloadString'
+
+  selection_cradle_destination:
+    Destination|contains|all:
+      - 'Net.WebClient'
+      - 'DownloadString'
+
   filter_main_known_good_consumers:
-    # Suppress known-legitimate WMI consumers by consumer name.
-    # Extend this list based on your environment (OEM management tools are the main FP source).
-    # NOTE: Both conditions must match to suppress — name AND safe path.
+    # BOTH this AND filter_main_known_good_paths must match to suppress
     Name|contains:
-      - 'Intel'
       - 'Lenovo'
       - 'Dell'
+      - 'Intel'
+      - 'HP'
+
   filter_main_known_good_paths:
-    Destination|startswith:
+    CommandLine|startswith:
       - 'C:\Windows\System32\'
       - 'C:\Program Files\Intel\'
       - 'C:\Program Files\Lenovo\'
       - 'C:\Program Files (x86)\Dell\'
+
   condition: >
     selection_consumer_type
-    and selection_powershell
+    and (selection_powershell_cmdline or selection_powershell_destination)
+    and (
+      selection_evasion_flags_cmdline
+      or selection_evasion_flags_destination
+      or selection_cradle_cmdline
+      or selection_cradle_destination
+    )
     and not (filter_main_known_good_consumers and filter_main_known_good_paths)
-    and (selection_powershell_flags or selection_powershell)
+
 falsepositives:
-  - Enterprise OEM management tooling (Intel ME, Dell Command, Lenovo Vantage) may register
-    WMI consumers in rare configurations. Validate with consumer Name and Destination path.
-  - Custom enterprise monitoring solutions. Baseline your environment before deploying at high severity.
+  - Enterprise OEM management tools (Dell Command, Lenovo Vantage, Intel ME).
+    Tune filter_main_known_good_* with observed consumer names and paths from baseline.
+  - Custom enterprise monitoring solutions using WMI eventing internally.
 level: high
 fields:
   - UtcTime
   - User
   - Name
   - Type
+  - CommandLine
   - Destination
   - Filter
   - CreatorProcessName
