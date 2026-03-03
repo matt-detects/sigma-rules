@@ -1,0 +1,92 @@
+title: Known C2 IP Address Observed in Process CommandLine or Network Connection
+id: f4a17e83-2c9d-4b51-a830-7d6e5f1c2b08
+status: experimental
+description: |
+  Detects a known or suspected C2 IP address appearing in process command line
+  arguments or as a destination in network connection events.
+
+  This rule is intended as a threat-intel-driven, IOC-anchored detection that
+  should be updated as C2 infrastructure is identified. The IP list should be
+  maintained as a threat intel feed or reference list in the SIEM rather than
+  hardcoded. The values below are examples from the observed campaign log trail.
+
+  Covers both direct IP references in command lines (e.g. bash reverse shells,
+  PowerShell WebClient cradles, curl/wget callbacks) and outbound network
+  connections to the IP, providing coverage regardless of whether the command
+  line is visible in telemetry.
+
+  Cross-platform: applies to both Windows (process_creation, network_connection)
+  and Linux (process_creation, network_connection) log sources.
+
+  Part of a cross-platform persistence and C2 detection chain. Correlate with:
+    - WMI persistence rules (EID 19/20/21) on Windows
+    - Systemd service creation rule on Linux
+    - Elastic EQL sequence correlation rule for full campaign detection
+author: Matt S
+date: 2026/03/03
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1059/004/
+related:
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: related
+  - id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b
+    type: related
+  - id: c7f2e841-9a3d-4b18-d506-1e8f3c2a7b94
+    type: related
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.execution
+  - attack.t1059.001
+  - attack.t1059.004
+logsource:
+  category: process_creation
+  product: windows  # Deploy separately against linux logsource
+detection:
+  selection_cmdline_ip:
+    # Direct IP reference in command line — covers PowerShell cradles,
+    # bash reverse shells, curl/wget callbacks, netcat listeners etc.
+    CommandLine|contains:
+      - '10.10.10.101'
+
+  selection_parent_suspicious:
+    # Elevates confidence — C2 IP referenced by a shell or interpreter
+    # is higher confidence than a legitimate tool making a monitored connection
+    ParentImage|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\cmd.exe'
+      - '\wscript.exe'
+      - '\mshta.exe'
+      - '\wmiprvse.exe'
+      - '/bash'
+      - '/sh'
+      - '/python3'
+      - '/python'
+
+  filter_main_known_good:
+    # Extend with known-legitimate internal tools that may reference this range
+    CommandLine|contains:
+      - 'nmap'        # Security scanning — tune if scanners are in scope
+      - 'ping'        # ICMP reachability checks from monitoring tools
+
+  condition: selection_cmdline_ip and not filter_main_known_good
+
+falsepositives:
+  - Internal security scanning tools targeting this IP range
+  - Penetration testing activity — coordinate with red team to suppress by user or host
+  - Threat intel enrichment tools that log IP values in process context
+level: critical
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - User
+  - HostName
+  - DestinationIp
+  - DestinationPort
+  - ProcessId
+  - ParentProcessId
