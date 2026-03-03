@@ -1,50 +1,109 @@
-title: Suspicious PowerShell Execution with Encoded Command
-id: testing.1
+title: Suspicious PowerShell Execution with Encoded Command Argument
+id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
 status: experimental
 description: |
-  Detects PowerShell execution with the -EncodedCommand parameter, 
-  which is commonly used to obfuscate malicious payloads.
+  Detects PowerShell (powershell.exe or pwsh.exe) executed with an encoded command
+  argument (-EncodedCommand / -enc / -en variants). Encoded commands are a primary
+  obfuscation technique used to conceal malicious payloads from command-line logging
+  and AV scanning.
 
+  Also detects renamed PowerShell binaries via OriginalFileName to catch trivial
+  image-name evasion. No user-based suppression is applied — service accounts and
+  admin accounts are high-value targets and should not be silently excluded.
+
+  Forms part of a WMI persistence detection chain alongside rules for EID 20 and EID 21.
 author: Matt S
-date: 2026-02-12
+date: 2026/02/12
+modified: 2026/03/03
 references:
   - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1027/
   - https://www.sans.org/blog/understanding-powershell-obfuscation/
+  - https://lolbas-project.github.io/lolbas/Binaries/Powershell/
+related:
+  - id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b  # WMI EID 20 — Encoded Consumer
+    type: related
+  - id: 3b8e1f72-cd04-4a9e-b507-f92d3a5e8061  # WMI EID 21 — Binding Created
+    type: related
 tags:
   - attack.execution
   - attack.t1059.001
   - attack.defense_evasion
-
+  - attack.t1027
 logsource:
   category: process_creation
   product: windows
-
 detection:
-  selection_process:
-    Image|endswith: '\powershell.exe'
+  selection_image:
+    # Cover both Windows PowerShell and PowerShell 7+
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
 
-  selection_encoded:
+  selection_originalfilename:
+    # Catch renamed PowerShell binaries — attackers rename to evade image-based detections
+    OriginalFileName:
+      - 'PowerShell.EXE'
+      - 'pwsh.dll'
+
+  selection_encoded_flags:
+    # PowerShell accepts many abbreviations of -EncodedCommand.
+    # -e is intentionally excluded here as it is too noisy alone; covered by -en.
     CommandLine|contains:
-      - '-EncodedCommand'
-      - '-enc '
-  
-  filter_known_admin:
-    User|contains:
-      - 'svc_'
-      - 'admin'
+      - ' -EncodedCommand '
+      - ' -encodedcommand '
+      - ' -enc '
+      - ' -en '
 
-  condition: selection_process and selection_encoded and not filter_known_admin
+  selection_high_confidence_parents:
+    # Optional: elevates confidence significantly when parent is an Office app,
+    # browser, script host, or other unusual process.
+    # Used in condition_high_confidence variant below.
+    ParentImage|endswith:
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\outlook.exe'
+      - '\mshta.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\msiexec.exe'
+      - '\regsvr32.exe'
+      - '\rundll32.exe'
 
-fields:
-  - Image
-  - CommandLine
-  - ParentImage
-  - User
-  - Hostname
+  filter_main_known_good:
+    # Prefer suppressing by explicit known-good command line patterns rather than
+    # by username. Adjust these to match observed legitimate tooling in your environment.
+    CommandLine|contains:
+      - 'C:\Program Files\Microsoft Monitoring Agent\'
+      - 'C:\Program Files\Azure\SCOM\'
+      - 'C:\Windows\CCM\'  # SCCM/ConfigMgr client
+
+  # Two condition variants — use one depending on desired sensitivity:
+  #
+  # Standard: fires on any PowerShell (real or renamed) with encoded flag, excluding known-good paths
+  # High-confidence: additionally requires a suspicious parent process (fewer FPs, less coverage)
+
+  condition: >
+    (selection_image or selection_originalfilename)
+    and selection_encoded_flags
+    and not filter_main_known_good
 
 falsepositives:
-  - Legitimate administrative scripts using encoded commands
-  - Software deployment tools
-  - Automation frameworks
-
-level: medium
+  - Microsoft Endpoint Configuration Manager (SCCM/ConfigMgr) uses encoded PowerShell
+    for client operations — tune filter_main_known_good with observed CCM paths.
+  - Azure Monitor / SCOM agents may invoke encoded PowerShell for health checks.
+  - CI/CD pipeline agents (Azure DevOps, GitHub Actions runner, Jenkins) frequently
+    use encoded commands for script transport. Tune by ParentImage or CommandLine path.
+  - Some EDR and security tooling invokes PowerShell with encoded commands for scanning.
+level: high
+fields:
+  - Image
+  - OriginalFileName
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - User
+  - ComputerName
+  - ProcessId
+  - ParentProcessId
