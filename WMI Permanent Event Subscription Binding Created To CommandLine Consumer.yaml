@@ -1,55 +1,83 @@
-title: WMI Permanent Event Subscription Binding Created To CommandLine Consumer
-id: testing.3
+title: WMI Permanent Event Subscription Binding to CommandLineEventConsumer
+id: 3b8e1f72-cd04-4a9e-b507-f92d3a5e8061
 status: experimental
 description: |
-  Detects creation of a WMI permanent event subscription binding (Sysmon Event ID 21), which activates persistence by
-  binding an __EventFilter to an EventConsumer. This rule focuses on bindings that reference CommandLine consumers,
-  commonly abused for stealthy persistence.
+  Detects creation of a WMI permanent event subscription binding (Sysmon Event ID 21)
+  where a CommandLineEventConsumer is bound to an __EventFilter. Every EID 21 event
+  represents a completed persistence subscription — the filter/consumer pair is now
+  active and will execute on the defined trigger condition.
+  
+  This rule fires on all CommandLineEventConsumer bindings and applies name-based
+  signal enrichment to elevate confidence. OEM/management tool exceptions should
+  be tuned per environment.
 author: Matt S
-date: 2026-02-18
+date: 2026/02/18
+modified: 2026/03/03
 references:
   - https://learn.microsoft.com/sysinternals/downloads/sysmon
+  - https://attack.mitre.org/techniques/T1546/003/
+  - https://www.mandiant.com/resources/blog/surviving-the-hunt-for-persistent-wmi-event-subscriptions
 tags:
   - attack.persistence
   - attack.t1546.003
+  - attack.execution
+  - attack.t1059.001
 logsource:
   product: windows
-  service: sysmon
   category: wmi_event
 detection:
-  selection:
+  selection_base:
     EventID: 21
-    Operation|contains:
-      - "Created"
-  selection_binding:
-    # Sysmon EID 21 typically includes fields like 'Consumer' and 'Filter'
+    # On Sysmon EID 21, Consumer contains the full WMI object path, e.g.:
+    # CommandLineEventConsumer.Name="<adversary chosen name>"
+    # Matching on this string scopes to executable consumers only.
+    Consumer|contains: 'CommandLineEventConsumer'
+
+  selection_suspicious_names:
+    # Adversaries frequently use names that blend in with legitimate software.
+    # These match against the full Consumer path string which includes the Name attribute.
+    # NOTE: High-volume environments may see FPs on 'Windows' or 'Update' — tune as needed.
     Consumer|contains:
-      - "CommandLineEventConsumer"
+      - 'Update'
+      - 'Security'
+      - 'Defender'
+      - 'Telemetry'
+      - 'Adobe'
+      - 'Chrome'
+      - 'OneDrive'
+      - 'Svchost'
+      - 'System'
+
+  filter_main_known_good_name:
+    # Known-legitimate OEM and management tool consumer names.
+    # Both this AND filter_main_known_good_filter must match to suppress.
+    Consumer|contains:
+      - 'Lenovo'
+      - 'Dell'
+      - 'Intel'
+      - 'HP'
+
+  filter_main_known_good_filter:
+    # Legitimate OEM bindings typically reference vendor-namespaced filters.
+    # Requiring this alongside name match prevents over-suppression.
     Filter|contains:
-      - "__EventFilter"
-  selection_high_signal_names:
-    # Optional "interesting" keywords that often show up in adversary naming
-    Consumer|contains:
-      - "Update"
-      - "Windows"
-      - "Security"
-      - "Defender"
-      - "Telemetry"
-      - "Adobe"
-      - "Chrome"
-      - "OneDrive"
-  filter_known_good:
-    # Tune with your environment's known legitimate bindings
-    Consumer|contains:
-      - "Lenovo"
-      - "Dell"
-      - "Intel"
-    Filter|contains:
-      - "Vendor"
-  condition: selection and selection_binding and (selection_high_signal_names or not filter_known_good)
+      - 'Vendor'
+      - 'OEM'
+      - 'Intel'
+      - 'Lenovo'
+      - 'Dell'
+
+  condition: >
+    selection_base
+    and not (filter_main_known_good_name and filter_main_known_good_filter)
+    and selection_suspicious_names
+
 falsepositives:
-  - Some enterprise management / OEM tooling can create WMI permanent subscriptions.
-  - Legitimate IT scripts that implement WMI-based monitoring/persistence patterns (rare).
+  - OEM hardware management tools (Dell Command, Lenovo Vantage, Intel ME) may register
+    CommandLineEventConsumer bindings. Tune filter_main_known_good_* with observed consumer
+    and filter names from your baseline.
+  - Enterprise monitoring or deployment tools that use WMI eventing internally.
+  - Security products that monitor via WMI subscriptions.
 level: high
 fields:
   - UtcTime
@@ -57,4 +85,4 @@ fields:
   - Consumer
   - Filter
   - CreatorProcessName
-  - CreatorProcessID
+  - CreatorProcessId
