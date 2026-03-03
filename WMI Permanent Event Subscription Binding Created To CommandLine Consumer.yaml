@@ -2,14 +2,12 @@ title: WMI Permanent Event Subscription Binding to CommandLineEventConsumer
 id: 3b8e1f72-cd04-4a9e-b507-f92d3a5e8061
 status: experimental
 description: |
-  Detects creation of a WMI permanent event subscription binding (Sysmon Event ID 21)
-  where a CommandLineEventConsumer is bound to an __EventFilter. Every EID 21 event
-  represents a completed persistence subscription — the filter/consumer pair is now
-  active and will execute on the defined trigger condition.
-  
-  This rule fires on all CommandLineEventConsumer bindings and applies name-based
-  signal enrichment to elevate confidence. OEM/management tool exceptions should
-  be tuned per environment.
+  Detects WMI subscription binding creation (Sysmon EID 21) to a CommandLineEventConsumer.
+  Operation field confirmed present on EID 21 but omitted — every EID 21 is a creation.
+  'Check' and 'Windows' added to suspicious names based on confirmed observed attack:
+  Consumer="UpdateCheckConsumer" / Filter="UpdateCheckFilter" (symmetric naming pattern).
+  Symmetric filter/consumer naming is a high-value SIEM correlation opportunity not
+  expressible in native Sigma — implement as a separate correlation rule if possible.
 author: Matt S
 date: 2026/02/18
 modified: 2026/03/03
@@ -17,6 +15,13 @@ references:
   - https://learn.microsoft.com/sysinternals/downloads/sysmon
   - https://attack.mitre.org/techniques/T1546/003/
   - https://www.mandiant.com/resources/blog/surviving-the-hunt-for-persistent-wmi-event-subscriptions
+related:
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: related
+  - id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b
+    type: related
+  - id: 9d2f4a17-5c8e-4b31-a7f0-2e6d8b3c5091
+    type: related
 tags:
   - attack.persistence
   - attack.t1546.003
@@ -28,15 +33,10 @@ logsource:
 detection:
   selection_base:
     EventID: 21
-    # On Sysmon EID 21, Consumer contains the full WMI object path, e.g.:
-    # CommandLineEventConsumer.Name="<adversary chosen name>"
-    # Matching on this string scopes to executable consumers only.
     Consumer|contains: 'CommandLineEventConsumer'
 
   selection_suspicious_names:
-    # Adversaries frequently use names that blend in with legitimate software.
-    # These match against the full Consumer path string which includes the Name attribute.
-    # NOTE: High-volume environments may see FPs on 'Windows' or 'Update' — tune as needed.
+    # 'Check' and 'Windows' added — confirmed in observed attack naming pattern
     Consumer|contains:
       - 'Update'
       - 'Security'
@@ -47,10 +47,11 @@ detection:
       - 'OneDrive'
       - 'Svchost'
       - 'System'
+      - 'Windows'
+      - 'Check'
 
   filter_main_known_good_name:
-    # Known-legitimate OEM and management tool consumer names.
-    # Both this AND filter_main_known_good_filter must match to suppress.
+    # BOTH this AND filter_main_known_good_filter must match to suppress
     Consumer|contains:
       - 'Lenovo'
       - 'Dell'
@@ -58,8 +59,6 @@ detection:
       - 'HP'
 
   filter_main_known_good_filter:
-    # Legitimate OEM bindings typically reference vendor-namespaced filters.
-    # Requiring this alongside name match prevents over-suppression.
     Filter|contains:
       - 'Vendor'
       - 'OEM'
@@ -69,15 +68,16 @@ detection:
 
   condition: >
     selection_base
-    and not (filter_main_known_good_name and filter_main_known_good_filter)
     and selection_suspicious_names
+    and not (filter_main_known_good_name and filter_main_known_good_filter)
+
+  # Broader variant (all CommandLineEventConsumer bindings, higher noise):
+  # condition: selection_base and not (filter_main_known_good_name and filter_main_known_good_filter)
 
 falsepositives:
-  - OEM hardware management tools (Dell Command, Lenovo Vantage, Intel ME) may register
-    CommandLineEventConsumer bindings. Tune filter_main_known_good_* with observed consumer
-    and filter names from your baseline.
-  - Enterprise monitoring or deployment tools that use WMI eventing internally.
-  - Security products that monitor via WMI subscriptions.
+  - OEM hardware management tools. Tune filter_main_known_good_* from environment baseline.
+  - Enterprise monitoring or deployment tools using WMI eventing.
+  - Security products monitoring via WMI subscriptions.
 level: high
 fields:
   - UtcTime
