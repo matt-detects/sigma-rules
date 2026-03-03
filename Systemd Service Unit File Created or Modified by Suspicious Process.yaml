@@ -1,0 +1,149 @@
+title: Systemd Service Unit File Created or Modified by Suspicious Process
+id: c7f2e841-9a3d-4b18-d506-1e8f3c2a7b94
+status: experimental
+description: |
+  Detects creation or modification of systemd service unit files in watched
+  directories (/etc/systemd/system/, /lib/systemd/system/, ~/.config/systemd/)
+  by processes that are not expected to manage service unit files.
+
+  Legitimate service unit creation occurs via package managers (apt, dpkg, yum,
+  rpm), configuration management agents (ansible, puppet, chef, salt), or
+  explicit admin tooling. Creation via shells, interpreters, curl, wget, or
+  unknown binaries is a strong indicator of persistence establishment.
+
+  Commonly follows initial access via web shell, reverse shell, or exploitation
+  of a public-facing service. In cloud environments, also seen following IMDSv1
+  credential theft and subsequent SSH access.
+
+  Intended for use with auditd or a compatible file integrity monitoring
+  telemetry source (e.g. Falco, osquery, Sysdig).
+author: Matt S
+date: 2026/03/03
+references:
+  - https://attack.mitre.org/techniques/T1543/002/
+  - https://www.freedesktop.org/software/systemd/man/systemd.service.html
+  - https://blogs.juniper.net/en-us/threat-research/linux-backdoor-malware-increasingly-targets-cloud
+related:
+  - id: a1c4e2f8-3d7b-4f90-b6e1-8c5d2a9f1e04
+    type: similar
+tags:
+  - attack.persistence
+  - attack.t1543.002
+  - attack.execution
+  - attack.t1059.004
+logsource:
+  product: linux
+  category: file_event
+detection:
+  selection_service_file:
+    # Target directories where systemd scans for unit files
+    TargetFilename|startswith:
+      - '/etc/systemd/system/'
+      - '/lib/systemd/system/'
+      - '/usr/lib/systemd/system/'
+      - '/run/systemd/system/'
+    TargetFilename|endswith:
+      - '.service'
+      - '.timer'
+      - '.socket'
+
+  selection_suspicious_process:
+    # Processes that have no legitimate reason to write service unit files.
+    # Shell processes, interpreters, downloaders, and generic binaries are
+    # the most common post-exploitation writers.
+    Image|endswith:
+      - '/bash'
+      - '/sh'
+      - '/dash'
+      - '/zsh'
+      - '/python'
+      - '/python3'
+      - '/perl'
+      - '/ruby'
+      - '/php'
+      - '/curl'
+      - '/wget'
+      - '/nc'
+      - '/ncat'
+      - '/netcat'
+
+  filter_main_package_managers:
+    # Legitimate service file writers — package managers and config management
+    Image|endswith:
+      - '/apt'
+      - '/apt-get'
+      - '/dpkg'
+      - '/rpm'
+      - '/yum'
+      - '/dnf'
+      - '/zypper'
+      - '/pacman'
+      - '/snap'
+      - '/ansible'
+      - '/puppet'
+      - '/chef-client'
+      - '/salt-minion'
+
+  filter_main_known_good_paths:
+    # Installer/provisioning scripts that are legitimately path-invoked
+    Image|startswith:
+      - '/usr/bin/'
+      - '/usr/local/bin/'
+      - '/opt/ansible/'
+      - '/opt/puppetlabs/'
+      - '/opt/chef/'
+
+  condition: >
+    selection_service_file
+    and selection_suspicious_process
+    and not filter_main_package_managers
+
+falsepositives:
+  - Developers writing service files directly via a shell on a workstation or
+    dev server. Consider scoping to production/server asset groups.
+  - Container build processes that install services during image construction —
+    tune by host or container context if your telemetry supports it.
+  - Legitimate automation that shells out to create service files. Tune
+    filter_main_known_good_paths with observed installer paths.
+level: high
+fields:
+  - TargetFilename
+  - Image
+  - CommandLine
+  - User
+  - ProcessId
+  - ParentImage
+  - ParentCommandLine
+  - HostName
+```
+
+---
+
+## Example Log
+
+This is an auditd-format log (via `aureport`/`ausearch` raw output) representing the attack scenario — a reverse shell process writing a malicious service file:
+```
+type=SYSCALL msg=audit(1740492132.441:8821): arch=c000003e syscall=257 success=yes
+  exit=3 a0=ffffff9c a1=7f3a2c910020 a2=241 a3=1a4 items=2 ppid=2901 pid=3847
+  auid=1001 uid=0 gid=0 euid=0 egid=0 suid=0 sgid=0 fsuid=0 fsuid=0
+  tty=(none) ses=12 comm="bash" exe="/usr/bin/bash"
+  subj=unconfined key="systemd_unit_write"
+
+type=CWD msg=audit(1740492132.441:8821): cwd="/tmp"
+
+type=PATH msg=audit(1740492132.441:8821): item=0 name="/etc/systemd/system/"
+  inode=131073 dev=fd:00 mode=040755 ouid=0 ogid=0 rdev=00:00
+  obj=system_u:object_r:systemd_unit_file_t:s0 nametype=PARENT cap_fp=0 cap_fi=0
+
+type=PATH msg=audit(1740492132.441:8821): item=1
+  name="/etc/systemd/system/cloud-monitor.service"
+  inode=524291 dev=fd:00 mode=0100644 ouid=0 ogid=0 rdev=00:00
+  obj=system_u:object_r:systemd_unit_file_t:s0 nametype=CREATE cap_fp=0 cap_fi=0
+
+type=PROCTITLE msg=audit(1740492132.441:8821):
+  proctitle=62617368002D630074656520272F6574632F73797374656D642F73797374656D2F636C6F75642D6D6F6E69746F722E736572766963652720
+```
+
+Decoding the `proctitle` hex gives the actual command:
+```
+bash -c tee '/etc/systemd/system/cloud-monitor.service'
