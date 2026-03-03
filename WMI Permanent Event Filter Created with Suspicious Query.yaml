@@ -1,0 +1,69 @@
+title: WMI Permanent Event Filter Created with Suspicious Query
+id: 9d2f4a17-5c8e-4b31-a7f0-2e6d8b3c5091
+status: experimental
+description: |
+  Detects creation of a WMI permanent event filter (Sysmon Event ID 19).
+  Filters define the trigger condition for WMI persistence subscriptions.
+  Creation of a filter is the first step in establishing WMI-based persistence
+  and should be correlated with EID 20 (consumer) and EID 21 (binding).
+author: Matt S
+date: 2026/03/03
+references:
+  - https://attack.mitre.org/techniques/T1546/003/
+related:
+  - id: 7f3a2c91-e84d-4b6f-a310-dc5f9e1a043b
+    type: related
+  - id: 3b8e1f72-cd04-4a9e-b507-f92d3a5e8061
+    type: related
+tags:
+  - attack.persistence
+  - attack.t1546.003
+logsource:
+  product: windows
+  category: wmi_event
+detection:
+  selection_base:
+    EventID: 19
+
+  selection_suspicious_queries:
+    # Common WMI trigger conditions used for persistence
+    Query|contains:
+      - 'SELECT * FROM __InstanceModificationEvent'  # timer-based
+      - 'Win32_LocalTime'                            # time trigger
+      - 'TargetInstance.Day'                         # date trigger
+      - '__InstanceCreationEvent'                    # on object creation
+      - 'Win32_ProcessStartTrace'                    # on process start
+      - 'LogonSession'                               # on logon
+
+  selection_suspicious_names:
+    # Mirror EID 21 name-based detection
+    Name|contains:
+      - 'Update'
+      - 'Security'
+      - 'Defender'
+      - 'Telemetry'
+      - 'Chrome'
+      - 'OneDrive'
+      - 'Svchost'
+
+  filter_main_known_good:
+    Name|contains:
+      - 'Lenovo'
+      - 'Dell'
+      - 'Intel'
+      - 'HP'
+
+  condition: >
+    selection_base
+    and (selection_suspicious_queries or selection_suspicious_names)
+    and not filter_main_known_good
+
+level: high
+fields:
+  - UtcTime
+  - User
+  - Name
+  - EventNamespace
+  - Query
+  - CreatorProcessName
+  - CreatorProcessId
