@@ -1,0 +1,68 @@
+title: Axios Supply Chain (Rule 2) PowerShell Copied to ProgramData as wt.exe (Windows Dropper)
+id: 8c3a1f74-d92e-4b07-b518-6e4f2c9d1a05
+status: experimental
+description: |
+  Detects the Windows execution path of the SILKBELL dropper (setup.js) used in
+  the Axios npm supply chain compromise. On Windows the dropper:
+    1. Copies powershell.exe to %PROGRAMDATA%\wt.exe to masquerade as Windows Terminal
+    2. Uses curl to download a PowerShell payload from sfrclak[.]com:8000
+    3. Executes the payload using the copied wt.exe with -w hidden -ep bypass
+
+  Copying a system binary to ProgramData under a different name to evade
+  image-based detection is a strong standalone signal independent of this campaign.
+author: Matt S
+date: 2026/04/03
+references:
+  - https://cloud.google.com/blog/topics/threat-intelligence/north-korea-threat-actor-targets-axios-npm-package
+  - https://attack.mitre.org/techniques/T1036/003/
+  - https://attack.mitre.org/techniques/T1059/001/
+tags:
+  - attack.defense_evasion
+  - attack.t1036.003
+  - attack.execution
+  - attack.t1059.001
+  - attack.initial_access
+  - attack.t1195.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_masquerade_copy:
+    # PowerShell copied to ProgramData as wt.exe
+    Image|endswith: '\wt.exe'
+    Image|contains: '\ProgramData\'
+    OriginalFileName: 'PowerShell.EXE'
+
+  selection_dropper_curl_c2:
+    # curl downloading from C2 with npm-masquerade POST body
+    Image|endswith: '\curl.exe'
+    CommandLine|contains|all:
+      - 'sfrclak'
+      - 'packages.npm.org'
+
+  selection_hidden_execution:
+    # wt.exe (masqueraded PowerShell) executing with hidden window + bypass
+    CommandLine|contains|all:
+      - 'wt.exe'
+      - 'hidden'
+      - 'bypass'
+    Image|contains: '\ProgramData\'
+
+  condition: >
+    selection_masquerade_copy
+    or selection_dropper_curl_c2
+    or selection_hidden_execution
+
+falsepositives:
+  - Legitimate Windows Terminal (wt.exe) is installed to a different path
+    (%LOCALAPPDATA%\Microsoft\WindowsApps\) — ProgramData path is not legitimate
+  - None expected for the curl C2 domain selection
+level: critical
+fields:
+  - Image
+  - OriginalFileName
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - User
+  - ProcessId
