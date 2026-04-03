@@ -1,0 +1,51 @@
+title: Axios Supply Chain (Rule 5) C2 Communication to Confirmed C2
+id: 6b9e3c14-a87d-4f20-b501-2d5c7a4e8f31
+status: experimental
+description: |
+  Detects outbound network connections to confirmed C2 infrastructure used in
+  the Axios npm supply chain compromise (UNC1069 / Sapphire Sleet, March 2026).
+
+  C2: sfrclak[.]com:8000 / 142.11.206.73
+  The C2 is used both for payload delivery and as the WAVESHAPER.V2 backdoor
+  command channel. The POST body 'packages.npm.org/productN' is used to
+  masquerade callback traffic as npm registry communication.
+
+  Cross-platform— deploy against both Windows and Linux/macOS network telemetry.
+  IOC should be migrated to a Value List for rotation as infrastructure changes.
+author: Matt S
+date: 2026/04/03
+references:
+  - https://cloud.google.com/blog/topics/threat-intelligence/north-korea-threat-actor-targets-axios-npm-package
+  - https://www.microsoft.com/en-us/security/blog/2026/04/01/mitigating-the-axios-npm-supply-chain-compromise/
+  - https://attack.mitre.org/techniques/T1071/001/
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.initial_access
+  - attack.t1195.002
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_c2_domain:
+    DestinationHostname|contains: 'sfrclak'
+    Initiated: 'true'
+
+  selection_c2_ip:
+    DestinationIp: '142.11.206.73'
+    Initiated: 'true'
+
+  condition: selection_c2_domain or selection_c2_ip
+
+falsepositives:
+  - None expected— sfrclak.com has no legitimate use
+level: critical
+fields:
+  - Image
+  - CommandLine
+  - DestinationIp
+  - DestinationHostname
+  - DestinationPort
+  - SourceIp
+  - User
+  - ProcessId
