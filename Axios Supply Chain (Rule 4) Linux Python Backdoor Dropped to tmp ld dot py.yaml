@@ -1,0 +1,54 @@
+title: Axios Supply Chain (Rule 4) Linux Python Backdoor Dropped to /tmp/ld.py
+id: 9a4c2d87-1e6f-4b53-b907-7d3e8f1c5a02
+status: experimental
+description: |
+  Detects the Linux execution path of the SILKBELL dropper used in the Axios
+  npm supply chain compromise. On Linux the dropper downloads a Python backdoor
+  (WAVESHAPER.V2 Python variant) to /tmp/ld.py for execution.
+
+  Writing a Python script to /tmp/ and executing it via node or a shell process
+  descended from an npm install is a high-confidence signal on build servers
+  and developer workstations.
+author: Matt S
+date: 2026/04/03
+references:
+  - https://cloud.google.com/blog/topics/threat-intelligence/north-korea-threat-actor-targets-axios-npm-package
+  - https://attack.mitre.org/techniques/T1059.006/
+tags:
+  - attack.execution
+  - attack.t1059.006
+  - attack.initial_access
+  - attack.t1195.002
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection_python_drop:
+    # Python backdoor written to /tmp/
+    TargetFilename: '/tmp/ld.py'
+    Image|endswith:
+      - '/node'
+      - '/curl'
+      - '/bash'
+      - '/sh'
+
+  selection_curl_linux:
+    # curl downloading with npm-masquerade POST body
+    Image|endswith: '/curl'
+    CommandLine|contains|all:
+      - 'packages.npm.org/product2'
+      - 'sfrclak'
+
+  condition: selection_python_drop or selection_curl_linux
+
+falsepositives:
+  - /tmp/ld.py is not a path used by any known legitimate tooling
+  - Low FP rate- the specific filename and location are highly specific to this campaign
+level: critical
+fields:
+  - TargetFilename
+  - Image
+  - CommandLine
+  - ParentImage
+  - User
+  - ProcessId
