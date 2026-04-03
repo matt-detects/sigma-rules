@@ -1,0 +1,63 @@
+title: Axios Supply Chain (Rule 3) macOS WAVESHAPER Payload Dropped to Library Caches
+id: 5d1b8e23-7f4a-4c91-b206-3e9d5a8f2c17
+status: experimental
+description: |
+  Detects the macOS execution path of the SILKBELL dropper used in the Axios
+  npm supply chain compromise. On macOS the dropper downloads a Mach-O binary
+  to /Library/Caches/com.apple.act.mond, masquerading as an Apple daemon,
+  sets executable permissions, and launches it via zsh in the background.
+
+  /Library/Caches/ is not a legitimate location for executable binaries.
+  chmod 770 followed by execution of a newly created file in this path is
+  a high-confidence malicious signal.
+author: Matt S
+date: 2026/04/03
+references:
+  - https://cloud.google.com/blog/topics/threat-intelligence/north-korea-threat-actor-targets-axios-npm-package
+  - https://attack.mitre.org/techniques/T1036.005/
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005
+  - attack.execution
+  - attack.t1059.004
+  - attack.initial_access
+  - attack.t1195.002
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection_payload_chmod:
+    # chmod making the dropped Mach-O executable
+    Image|endswith: '/chmod'
+    CommandLine|contains|all:
+      - '770'
+      - '/Library/Caches/com.apple.act.mond'
+
+  selection_payload_execution:
+    # zsh executing the dropped binary in background
+    Image|endswith: '/zsh'
+    CommandLine|contains:
+      - '/Library/Caches/com.apple.act.mond'
+
+  selection_curl_dropper:
+    # curl downloading payload with npm-masquerade POST body
+    Image|endswith: '/curl'
+    CommandLine|contains|all:
+      - 'packages.npm.org/product0'
+      - 'sfrclak'
+
+  condition: >
+    selection_payload_chmod
+    or selection_payload_execution
+    or selection_curl_dropper
+
+falsepositives:
+  - No legitimate Apple daemon uses /Library/Caches/ as an executable location
+  - com.apple.act.mond is not a known legitimate Apple process name
+level: critical
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - User
+  - ProcessId
