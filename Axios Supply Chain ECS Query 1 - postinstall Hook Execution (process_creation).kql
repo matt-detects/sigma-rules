@@ -1,0 +1,27 @@
+// Axios Supply Chain ECS Query 1 - postinstall Hook Execution (process_creation)
+// Detects node.exe executing setup.js from the plain-crypto-js package directory
+
+process
+| where timestamp > ago(30d)
+| where (
+    (process.parent.executable endswith "npm.cmd"
+     or process.parent.executable endswith "npm"
+     or process.parent.executable endswith "node.exe")
+    and process.executable endswith "node.exe"
+    and process.command_line contains "setup.js"
+    and process.command_line contains "plain-crypto-js"
+  )
+  or (
+    process.command_line contains "node"
+    and process.command_line contains "setup.js"
+    and process.working_directory contains "plain-crypto-js"
+  )
+| project
+    timestamp,
+    host.name,
+    process.executable,
+    process.command_line,
+    process.parent.executable,
+    process.parent.command_line,
+    process.working_directory,
+    user.name
