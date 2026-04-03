@@ -1,0 +1,22 @@
+// Axios Supply Chain ECS Query 3 — macOS Dropper: WAVESHAPER dropped to /Library/Caches/
+
+process
+| where timestamp > ago(30d)
+| where
+  (process.executable endswith "/chmod"
+   and process.command_line contains "770"
+   and process.command_line contains "/Library/Caches/com.apple.act.mond")
+  or
+  (process.executable endswith "/zsh"
+   and process.command_line contains "/Library/Caches/com.apple.act.mond")
+  or
+  (process.executable endswith "/curl"
+   and process.command_line contains "packages.npm.org/product0"
+   and process.command_line contains "sfrclak")
+| project
+    timestamp,
+    host.name,
+    process.executable,
+    process.command_line,
+    process.parent.executable,
+    user.name
