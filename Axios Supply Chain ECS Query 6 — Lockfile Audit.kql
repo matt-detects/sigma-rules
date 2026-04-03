@@ -1,0 +1,14 @@
+// Axios Supply Chain ECS Query 6 — Lockfile Audit: plain-crypto-js in package-lock.json
+// Retrospective hunt- searches file write events for lockfile modification
+// containing the malicious package name. Run against endpoint file telemetry.
+
+file
+| where timestamp > ago(30d)
+| where
+    (file.name == "package-lock.json" or file.name == "yarn.lock")
+    and file.content contains "plain-crypto-js"
+| project
+    timestamp,
+    host.name,
+    file.path,
+    process.ex
