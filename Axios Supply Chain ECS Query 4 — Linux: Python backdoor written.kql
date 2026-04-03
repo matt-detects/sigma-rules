@@ -1,0 +1,12 @@
+// Axios Supply Chain ECS Query 4 — Linux: Python backdoor written to /tmp/ld.py
+
+file
+| where timestamp > ago(30d)
+| where file.path == "/tmp/ld.py"
+| project
+    timestamp,
+    host.name,
+    file.path,
+    process.executable,
+    process.command_line,
+    user.name
