@@ -11,4 +11,5 @@ file
     timestamp,
     host.name,
     file.path,
-    process.ex
+    process.executable,
+    user.name
