@@ -1,0 +1,68 @@
+title: Axios Supply Chain (Rule 1) Malicious plain-crypto-js postinstall Hook Execution
+id: 2e7f4a91-b3c8-4d52-a610-9f8e3b2d7c04
+status: experimental
+description: |
+  Detects execution of node.js spawned from npm install/ci processes running
+  setup.js from the plain-crypto-js package directory, the postinstall dropper
+  used in the Axios supply chain compromise (UNC1069 / Sapphire Sleet, March 2026).
+
+  The postinstall hook causes npm to silently execute:
+    node setup.js
+  from within the plain-crypto-js package directory immediately on install.
+  The dropper then self-deletes to remove forensic traces.
+
+  Applies to developer workstations, CI/CD build runners, and container build hosts.
+author: Matt S
+date: 2026/04/03
+references:
+  - https://cloud.google.com/blog/topics/threat-intelligence/north-korea-threat-actor-targets-axios-npm-package
+  - https://socket.dev/blog/axios-npm-package-compromised
+  - https://attack.mitre.org/techniques/T1195/002/
+tags:
+  - attack.initial_access
+  - attack.t1195.002
+  - attack.execution
+  - attack.t1059.007
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_node_postinstall:
+    ParentImage|endswith:
+      - '\npm.cmd'
+      - '\npm'
+      - '\node.exe'
+    Image|endswith:
+      - '\node.exe'
+    CommandLine|contains|all:
+      - 'setup.js'
+      - 'plain-crypto-js'
+
+  selection_node_postinstall_alt:
+    # Alternate match— postinstall may be called with path variants
+    CommandLine|contains|all:
+      - 'node'
+      - 'setup.js'
+    CurrentDirectory|contains:
+      - 'plain-crypto-js'
+
+  condition: selection_node_postinstall or selection_node_postinstall_alt
+
+falsepositives:
+  - Legitimate packages named plain-crypto-js prior to the compromised version
+    (extremely unlikely given the typosquat origin of this package)
+level: critical
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - CurrentDirectory
+  - User
+  - ProcessId
+  - ParentProcessId
+
+  - DestinationPort
+  - SourceIp
+  - User
+  - ProcessId
