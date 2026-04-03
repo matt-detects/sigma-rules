@@ -1,0 +1,27 @@
+// Axios Supply Chain ECS Query 2 — Windows Dropper: PowerShell masquerading as wt.exe in ProgramData
+
+process
+| where timestamp > ago(30d)
+| where
+  // PowerShell copied to ProgramData as wt.exe
+  (process.executable contains "ProgramData"
+   and process.executable endswith "wt.exe"
+   and process.pe.original_file_name == "PowerShell.EXE")
+  or
+  // curl downloading from C2 with npm-masquerade POST body
+  (process.executable endswith "curl.exe"
+   and process.command_line contains "sfrclak"
+   and process.command_line contains "packages.npm.org")
+  or
+  // Hidden/bypass execution from ProgramData
+  (process.executable contains "ProgramData"
+   and process.command_line contains "hidden"
+   and process.command_line contains "bypass")
+| project
+    timestamp,
+    host.name,
+    process.executable,
+    process.pe.original_file_name,
+    process.command_line,
+    process.parent.executable,
+    user.name
